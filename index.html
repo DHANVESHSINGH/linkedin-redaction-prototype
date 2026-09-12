@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedIn Document Redaction System (DPDP Act Compliant)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+
+        /* Redaction Mask Overlay Styling */
+        .redaction-box {
+            position: absolute;
+            background-color: #dc2626;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            border: 2px solid #991b1b;
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.5);
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.15 ease, box-shadow 0.15s ease;
+            z-index: 20;
+            border-radius: 4px;
+        }
+        .redaction-box:hover {
+            transform: scale(1.02);
+            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.7);
+            border-color: #ef4444;
+        }
+
+        /* Canvas Workspace Overlay */
+        .canvas-container {
+            position: relative;
+            user-select: none;
+            touch-action: none;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+        }
+
+        /* Temporary Custom Redaction Selection Box */
+        .drawing-box {
+            position: absolute;
+            border: 2px dashed #ef4444;
+            background-color: rgba(239, 68, 68, 0.4);
+            pointer-events: none;
+            z-index: 30;
+            border-radius: 4px;
+        }
+
+        /* Step Indicator Badge Styling */
+        .step-pill {
+            transition: all 0.3s ease;
+        }
+        .step-pill.active {
+            background-color: #2563eb;
+            color: #ffffff;
+            font-weight: 700;
+            box-shadow: 0 0 12px rgba(37, 99, 235, 0.5);
+        }
+        
+        /* Scanning animation effect */
+        @keyframes scanLine {
+            0% { top: 0%; }
+            100% { top: 100%; }
+        }
+        .scanner-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, #ef4444, #3b82f6, transparent);
+            box-shadow: 0 0 15px #ef4444;
+            animation: scanLine 2s infinite ease-in-out;
+            z-index: 35;
+        }
+
+        /* Restricted right click notice animation */
+        .prevent-select {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -khtml-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col bg-slate-950 text-slate-100 prevent-select" oncontextmenu="return false;">
+
+    <!-- 1. HEADER SECTION: Red Header Block -->
+    <header class="bg-gradient-to-r from-red-600 via-red-700 to-red-800 text-white shadow-2xl border-b-4 border-red-900">
+        <div class="max-w-6xl mx-auto px-4 py-8 text-center space-y-3">
+            <div class="inline-flex items-center gap-2 bg-red-950/80 px-4 py-1.5 rounded-full text-xs font-extrabold uppercase tracking-widest text-amber-300 border border-red-500/40 shadow-inner">
+                <i class="fa-solid fa-shield-halved text-amber-400 text-sm"></i> DPDP ACT 2023 COMPLIANT SYSTEM
+            </div>
+            <h1 class="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white drop-shadow-md uppercase">
+                DOCUMENT REDACTION SYSTEM
+            </h1>
+            <p class="text-red-100 text-xs sm:text-sm max-w-3xl mx-auto font-medium leading-relaxed">
+                Before posting sensitive documents (Aadhaar, PAN, Marksheets, Resume, ID Cards) on LinkedIn, automatically hide the sensitive fields (Name, Signature, Photo, ID Number, Phone Number) with a <strong>RED BOX</strong>.
+            </p>
+        </div>
+    </header>
+
+    <!-- STEP NAVIGATION BAR -->
+    <nav class="bg-slate-900 border-b border-slate-800 sticky top-0 z-40 shadow-md">
+        <div class="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center text-xs md:text-sm">
+            <div id="step1Indicator" class="step-pill active px-3.5 py-1.5 rounded-xl flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center font-bold text-xs">1</span>
+                <span>Upload & Detect</span>
+            </div>
+            <div class="h-0.5 flex-1 bg-slate-800 mx-2"></div>
+            <div id="step2Indicator" class="step-pill text-slate-400 px-3.5 py-1.5 rounded-xl flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs">2</span>
+                <span>Verify & Redact</span>
+            </div>
+            <div class="h-0.5 flex-1 bg-slate-800 mx-2"></div>
+            <div id="step3Indicator" class="step-pill text-slate-400 px-3.5 py-1.5 rounded-xl flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs">3</span>
+                <span>LinkedIn Post</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTENT CONTAINER -->
+    <main class="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 space-y-6">
+
+        <!-- STEP 1: UPLOAD SECTION -->
+        <section id="uploadSection" class="bg-slate-900 rounded-3xl p-6 md:p-10 shadow-2xl border border-slate-800 text-center space-y-6">
+            <div class="max-w-xl mx-auto space-y-6">
+                <div class="w-24 h-24 bg-blue-600/10 text-blue-500 rounded-3xl flex items-center justify-center mx-auto text-4xl shadow-inner border border-blue-500/20">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-black text-white">Upload Document or Image</h2>
+                    <p class="text-xs text-slate-400 mt-2">Select your file to start automated DPDP Act redaction detection</p>
+                </div>
+
+                <!-- DRAG & DROP ZONE WITH BLUE UPLOAD BUTTON -->
+                <div class="border-2 border-dashed border-slate-700 hover:border-blue-500 transition-colors rounded-2xl p-8 bg-slate-950/50 space-y-4">
+                    <i class="fa-solid fa-file-pdf text-3xl text-red-500"></i>
+                    <i class="fa-solid fa-file-image text-3xl text-blue-400 ml-2"></i>
+                    <p class="text-xs text-slate-400 font-medium">Supports PDF files (.pdf) and Image files (.png, .jpg, .jpeg)</p>
+                    
+                    <div class="pt-2">
+                        <label for="docUpload" class="inline-flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 px-8 rounded-xl shadow-lg shadow-blue-600/30 cursor-pointer transition-all transform active:scale-95 text-base w-full sm:w-auto">
+                            <i class="fa-solid fa-folder-open text-xl"></i>
+                            <span>Select Image / PDF Document</span>
+                        </label>
+                        <input type="file" id="docUpload" accept="image/png, image/jpeg, image/jpg, .pdf" class="hidden" onchange="handleFileSelect(event)">
+                    </div>
+                </div>
+
+                <!-- PRE-LOADED SAMPLE OPTIONS FOR INSTANT TESTING -->
+                <div class="pt-4 border-t border-slate-800">
+                    <p class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Or Try Sample Documents:</p>
+                    <div class="flex flex-wrap justify-center gap-3">
+                        <button onclick="loadSample('id_card')" class="px-4 py-2.5 bg-slate-800 hover:bg-blue-900/40 hover:text-blue-400 hover:border-blue-500/50 text-slate-200 rounded-xl text-xs font-semibold transition border border-slate-700 flex items-center gap-2">
+                            <i class="fa-solid fa-id-card text-blue-400 text-sm"></i> Identity Card (Govt ID)
+                        </button>
+                        <button onclick="loadSample('certificate')" class="px-4 py-2.5 bg-slate-800 hover:bg-emerald-900/40 hover:text-emerald-400 hover:border-emerald-500/50 text-slate-200 rounded-xl text-xs font-semibold transition border border-slate-700 flex items-center gap-2">
+                            <i class="fa-solid fa-file-contract text-emerald-400 text-sm"></i> Certificate / Marksheet
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- STEP 2: REDACTION PROCESSING CANVAS -->
+        <section id="redactionSection" class="hidden bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-800 space-y-6">
+            <!-- Header bar inside processing section -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-4">
+                <div>
+                    <h3 class="text-xl font-black text-white flex items-center gap-2">
+                        <i class="fa-solid fa-wand-magic-sparkles text-red-500"></i> AI Sensitivity Masking Studio
+                    </h3>
+                    <p class="text-xs text-slate-400 mt-1">DPDP Act rules according sensitive fields ko automatically RED boxes se mask hide kar diya gaya hai.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="resetAll()" class="text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3.5 py-2 rounded-xl border border-slate-700 transition flex items-center gap-2">
+                        <i class="fa-solid fa-arrow-left"></i> Re-upload Document
+                    </button>
+                </div>
+            </div>
+
+            <!-- Workspace Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Document Canvas Display Area -->
+                <div class="lg:col-span-2 bg-slate-950 rounded-2xl p-4 flex flex-col items-center justify-center min-h-[480px] relative overflow-hidden select-none border border-slate-800">
+                    
+                    <!-- Scanner Animation Overlay (shows brief scanning effect) -->
+                    <div id="scannerLine" class="scanner-line hidden"></div>
+
+                    <div class="absolute top-3 left-3 bg-slate-900/90 backdrop-blur-md text-slate-300 text-[11px] px-3.5 py-1.5 rounded-full border border-slate-700 flex items-center gap-2 z-30 shadow-lg">
+                        <i class="fa-solid fa-hand-pointer text-red-400"></i> Click red box to remove | Drag mouse on canvas to draw custom mask
+                    </div>
+
+                    <!-- CANVAS CONTAINER -->
+                    <div id="canvasWrapper" class="canvas-container rounded-lg overflow-hidden my-6 border border-slate-700">
+                        <div id="docCanvas" class="bg-white relative transition-all" style="width: 460px; height: 560px;">
+                            <!-- Document graphic content loaded dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controls Panel -->
+                <div class="space-y-4 flex flex-col justify-between">
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Detected Sensitive Fields</h4>
+                            <span id="detectedCount" class="text-xs bg-red-950 text-red-400 border border-red-800 font-extrabold px-2.5 py-0.5 rounded-full">5 Masked</span>
+                        </div>
+                        
+                        <!-- Dynamic Detection Checkbox List -->
+                        <div id="detectionList" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                            <!-- Items populated dynamically via JS -->
+                        </div>
+
+                        <!-- Manual Redaction Help Card -->
+                        <div class="p-3.5 bg-slate-800/80 border border-slate-700 rounded-2xl text-slate-300 text-xs space-y-1">
+                            <p class="font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-vector-square text-red-500"></i> Manual Redaction Box
+                            </p>
+                            <p class="text-slate-400 leading-relaxed text-[11px]">Canvas par drag karke aap kisi bhi extra region (Signature, Photo, Text) ko red overlay box se hide kar sakte hain.</p>
+                        </div>
+
+                        <!-- DPDPA Compliance Security Card (No Downloads Allowed) -->
+                        <div class="p-3.5 bg-red-950/40 border border-red-900/60 rounded-2xl text-red-200 text-xs space-y-1">
+                            <p class="font-bold flex items-center gap-2 text-red-400">
+                                <i class="fa-solid fa-ban text-red-500"></i> Download Strictly Disabled (DPDPA)
+                            </p>
+                            <p class="text-red-300/80 leading-relaxed text-[11px]">Data leaks & privacy misuse ko rokne ke liye local drive par file save/download karna restricted hai. Document direct LinkedIn composer baseline par push hoga.</p>
+                        </div>
+                    </div>
+
+                    <!-- SUBMIT BUTTON -->
+                    <div class="pt-2 border-t border-slate-800">
+                        <button id="submitBtn" onclick="processSubmit()" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-4 px-4 rounded-xl shadow-lg shadow-red-600/30 transition flex items-center justify-center gap-2 text-sm uppercase tracking-wide">
+                            <i class="fa-solid fa-shield-check text-lg"></i>
+                            <span>Submit & Mask Document</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- STEP 3: SUBMITTED REDACTED PREVIEW -->
+        <section id="previewSection" class="hidden bg-slate-900 rounded-3xl p-6 md:p-8 shadow-2xl border border-slate-800 space-y-6">
+            <div class="bg-emerald-950/60 border border-emerald-800/60 rounded-2xl p-4 flex items-center gap-3">
+                <i class="fa-solid fa-shield-check text-emerald-400 text-3xl"></i>
+                <div>
+                    <h4 class="font-bold text-emerald-200 text-base">Document Successfully Redacted & Security Locked</h4>
+                    <p class="text-xs text-emerald-400/80 mt-0.5">Aapka sensitive data red overlay blocks dwara successfully hide ho gaya hai. Download restricted hai.</p>
+                </div>
+            </div>
+
+            <!-- Final Redacted Document View Box -->
+            <div class="flex justify-center bg-slate-950 p-6 rounded-2xl border border-slate-800">
+                <div id="finalPreviewContainer" class="shadow-2xl rounded-lg overflow-hidden transform scale-95 sm:scale-100 pointer-events-none select-none">
+                    <!-- Cloned preview here -->
+                </div>
+            </div>
+
+            <!-- Action Bar with Mandatory NEXT button -->
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-800">
+                <span class="text-xs text-slate-400 font-semibold flex items-center gap-2">
+                    <i class="fa-solid fa-lock text-red-500"></i> No Local Download Available (DPDP Act Compliance)
+                </span>
+                <button onclick="goToLinkedInComposer()" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white font-black py-4 px-8 rounded-xl shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-3 text-sm uppercase tracking-wider">
+                    <span>NEXT: WRITE LINKEDIN DESCRIPTION</span>
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </div>
+        </section>
+
+        <!-- STEP 4: LINKEDIN POST COMPOSER SECTION -->
+        <section id="linkedinComposerSection" class="hidden bg-slate-900 rounded-3xl shadow-2xl border border-slate-800 overflow-hidden max-w-2xl mx-auto">
+            <!-- LinkedIn Header Bar -->
+            <div class="bg-slate-950 px-6 py-4 text-white flex items-center justify-between border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <i class="fa-brands fa-linkedin text-blue-500 text-3xl"></i>
+                    <div>
+                        <span class="font-bold text-sm block">Create LinkedIn Post</span>
+                        <span class="text-[10px] text-slate-400">Direct Privacy Stream</span>
+                    </div>
+                </div>
+                <span class="text-[11px] bg-red-950 text-red-400 font-bold px-3 py-1 rounded-full border border-red-800 flex items-center gap-1.5">
+                    <i class="fa-solid fa-shield-halved text-xs"></i> DPDPA Protected
+                </span>
+            </div>
+
+            <div class="p-6 space-y-5">
+                <!-- User Profile Header -->
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-black text-lg rounded-full flex items-center justify-center border-2 border-slate-700 shadow-md">
+                        PRO
+                    </div>
+                    <div>
+                        <h5 class="font-bold text-sm text-white">Professional User</h5>
+                        <p class="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                            <i class="fa-solid fa-earth-americas text-[10px] text-blue-400"></i> Anyone on LinkedIn
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Textarea for LinkedIn Post Description -->
+                <div class="space-y-2">
+                    <label for="postDescription" class="block text-xs font-bold uppercase tracking-wider text-slate-400">Post Description / Caption</label>
+                    <textarea id="postDescription" rows="5" placeholder="Write your LinkedIn caption here... (e.g., Happy to share my verified document! Sensitive details like Name, Photo, Signature, Phone, and ID have been automatically redacted under DPDP Act 2023 compliance.)" class="w-full p-4 bg-slate-950 border border-slate-800 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm outline-none resize-none leading-relaxed text-slate-200"></textarea>
+                </div>
+
+                <!-- Embedded Redacted Attachment Card (Download Restricted) -->
+                <div class="border border-slate-800 rounded-2xl p-4 bg-slate-950 flex items-center gap-4">
+                    <div class="w-14 h-16 bg-red-950/60 rounded-xl border border-red-800/80 flex items-center justify-center text-red-500 flex-shrink-0">
+                        <i class="fa-solid fa-file-shield text-2xl"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-bold text-slate-200 truncate">Redacted_Document_DPDPA_Stream.png</p>
+                        <p class="text-[11px] text-red-400 font-medium flex items-center gap-1.5 mt-1">
+                            <i class="fa-solid fa-lock text-red-500"></i> Privacy Masked • Local Download Restricted
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Final Action Buttons -->
+                <div class="pt-4 border-t border-slate-800 flex items-center justify-between">
+                    <button onclick="backToPreview()" class="text-xs font-bold text-slate-400 hover:text-white transition">
+                        <i class="fa-solid fa-chevron-left"></i> Back to Preview
+                    </button>
+                    <button onclick="publishToLinkedIn()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-7 rounded-xl text-sm transition flex items-center gap-2 shadow-lg shadow-blue-600/30">
+                        <i class="fa-brands fa-linkedin text-lg"></i>
+                        <span>Post to LinkedIn</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- SUCCESS MODAL -->
+        <div id="successModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md hidden items-center justify-center p-4 z-50">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 text-center space-y-5 shadow-2xl">
+                <div class="w-20 h-20 bg-emerald-950 text-emerald-400 border border-emerald-800 rounded-full flex items-center justify-center mx-auto text-4xl shadow-inner">
+                    <i class="fa-solid fa-circle-check"></i>
+                </div>
+                <div class="space-y-2">
+                    <h3 class="text-xl font-extrabold text-white">Posted to LinkedIn Successfully!</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        Aapka document DPDP Act guidelines ko follow karte hue Name, ID, Photo, Signature, aur Phone Number hide karke directly LinkedIn par publish ho chuka hai.
+                    </p>
+                </div>
+                <div class="pt-2">
+                    <button onclick="location.reload()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl text-sm transition shadow-lg shadow-blue-600/30">
+                        Create Another Redacted Post
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // Detection Item State Store
+        let detectedItems = [
+            { id: 'name', label: 'Full Name', active: true, top: 110, left: 140, width: 220, height: 32 },
+            { id: 'photo', label: 'User Photo', active: true, top: 90, left: 30, width: 90, height: 120 },
+            { id: 'id_num', label: 'Govt. ID / Number', active: true, top: 260, left: 140, width: 240, height: 30 },
+            { id: 'phone', label: 'Phone Number', active: true, top: 340, left: 140, width: 200, height: 28 },
+            { id: 'signature', label: 'Signature', active: true, top: 440, left: 260, width: 170, height: 50 }
+        ];
+
+        let customBoxCount = 0;
+        let isDrawing = false;
+        let startX = 0, startY = 0;
+        let activeDrawBox = null;
+
+        // Handle File Input Selection
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                renderDocumentCanvas('custom', file.name);
+            }
+        }
+
+        // Load Preset Document Templates
+        function loadSample(type) {
+            renderDocumentCanvas(type);
+        }
+
+        // Render Canvas Content with DOM template representation
+        function renderDocumentCanvas(type, customName = '') {
+            document.getElementById('uploadSection').classList.add('hidden');
+            document.getElementById('redactionSection').classList.remove('hidden');
+
+            // Trigger visual scan line effect
+            const scanner = document.getElementById('scannerLine');
+            scanner.classList.remove('hidden');
+            setTimeout(() => scanner.classList.add('hidden'), 2000);
+
+            updateStepIndicator(1);
+
+            const canvas = document.getElementById('docCanvas');
+            canvas.innerHTML = '';
+
+            if (type === 'id_card' || customName.toLowerCase().includes('id')) {
+                detectedItems = [
+                    { id: 'name', label: 'Full Name', active: true, top: 110, left: 140, width: 220, height: 32 },
+                    { id: 'photo', label: 'User Photo', active: true, top: 90, left: 30, width: 90, height: 120 },
+                    { id: 'id_num', label: 'Govt. ID Number', active: true, top: 260, left: 140, width: 240, height: 30 },
+                    { id: 'phone', label: 'Phone Number', active: true, top: 340, left: 140, width: 200, height: 28 },
+                    { id: 'signature', label: 'Signature', active: true, top: 440, left: 260, width: 170, height: 50 }
+                ];
+                canvas.innerHTML = `
+                    <div class="p-6 h-full flex flex-col justify-between border-4 border-slate-300 rounded-lg relative font-sans text-xs bg-slate-50 select-none text-slate-800">
+                        <div class="border-b-2 border-red-600 pb-2 flex justify-between items-center">
+                            <div>
+                                <h4 class="font-extrabold text-slate-900 text-sm tracking-wider uppercase">GOVERNMENT IDENTITY CARD</h4>
+                                <p class="text-[9px] text-slate-500 uppercase font-bold">DPDP ACT PRIVACY COMPLIANT RECORD</p>
+                            </div>
+                            <i class="fa-solid fa-id-badge text-3xl text-red-600"></i>
+                        </div>
+                        <div class="grid grid-cols-3 gap-4 my-auto">
+                            <div class="bg-slate-200 rounded-lg h-32 flex items-center justify-center text-slate-400 border border-slate-300">
+                                <i class="fa-solid fa-user text-5xl text-slate-400"></i>
+                            </div>
+                            <div class="col-span-2 space-y-3">
+                                <div><span class="text-slate-400 block text-[9px] font-bold">NAME:</span><span class="font-black text-slate-900 text-sm">RAHUL KUMAR SHARMA</span></div>
+                                <div><span class="text-slate-400 block text-[9px] font-bold">DOB:</span><span class="font-bold text-slate-700">14/08/1992</span></div>
+                                <div><span class="text-slate-400 block text-[9px] font-bold">ID NO:</span><span class="font-mono font-bold text-slate-900 text-xs">3829-4920-1049</span></div>
+                                <div><span class="text-slate-400 block text-[9px] font-bold">PHONE:</span><span class="font-mono text-slate-700">+91 98765 43210</span></div>
+                            </div>
+                        </div>
+                        <div class="border-t border-slate-300 pt-3 flex justify-between items-end">
+                            <span class="text-[8px] font-bold text-slate-400">ISSUED UNDER DPDP ACT 2023 PRIVACY RULES</span>
+                            <div class="text-center">
+                                <div class="font-serif italic text-sm text-blue-900 font-bold mb-1">R.K.Sharma</div>
+                                <span class="text-[8px] border-t border-slate-400 pt-0.5 block text-slate-500 font-bold">AUTHORIZED SIGNATURE</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                detectedItems = [
+                    { id: 'name', label: 'Candidate Name', active: true, top: 155, left: 110, width: 240, height: 36 },
+                    { id: 'photo', label: 'Candidate Photo', active: true, top: 460, left: 24, width: 70, height: 70 },
+                    { id: 'id_num', label: 'UID Number', active: true, top: 275, left: 260, width: 170, height: 26 },
+                    { id: 'phone', label: 'Contact Phone', active: true, top: 275, left: 80, width: 160, height: 26 },
+                    { id: 'signature', label: 'HOD Signature', active: true, top: 460, left: 270, width: 160, height: 50 }
+                ];
+                canvas.innerHTML = `
+                    <div class="p-6 h-full flex flex-col justify-between border-2 border-slate-300 rounded-lg relative font-serif text-xs bg-amber-50/30 select-none text-slate-800">
+                        <div class="text-center border-b border-slate-300 pb-4">
+                            <h3 class="font-black text-lg text-slate-900 tracking-wide uppercase">CERTIFICATE OF EXCELLENCE</h3>
+                            <p class="text-[10px] text-slate-500 italic font-sans">VERIFIED ACADEMIC RECORD</p>
+                        </div>
+                        <div class="space-y-4 my-auto text-center px-4 font-sans">
+                            <p class="text-xs text-slate-600">This is to certify that</p>
+                            <p class="font-black text-lg text-blue-900 border-b-2 border-blue-900 inline-block px-4 pb-1">PRIYA S. VERMA</p>
+                            <p class="text-xs text-slate-600 leading-relaxed">Has successfully completed the Advanced Certification. Contact Phone: <span class="font-mono font-bold text-slate-900">+91 99887 76655</span> | UID: <span class="font-mono font-bold text-slate-900">CERT-2026-90812</span></p>
+                        </div>
+                        <div class="flex justify-between items-end border-t border-slate-300 pt-4 font-sans">
+                            <div class="w-16 h-16 bg-slate-200 rounded-lg flex items-center justify-center text-xs text-slate-400 border border-slate-300">
+                                [PHOTO]
+                            </div>
+                            <div class="text-center">
+                                <div class="font-serif italic text-base text-slate-900 font-bold">Priya Verma</div>
+                                <span class="text-[9px] text-slate-500 font-bold">AUTHORITY SIGNATURE</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            attachCanvasDragListeners();
+            renderRedactionOverlays();
+            renderControlPanel();
+        }
+
+        // Attach Mouse Drag Listeners for Custom Redaction Box Drawing
+        function attachCanvasDragListeners() {
+            const wrapper = document.getElementById('canvasWrapper');
+
+            wrapper.onmousedown = (e) => {
+                if (e.target.classList.contains('redaction-box')) return;
+                isDrawing = true;
+                const rect = wrapper.getBoundingClientRect();
+                startX = e.clientX - rect.left;
+                startY = e.clientY - rect.top;
+
+                activeDrawBox = document.createElement('div');
+                activeDrawBox.className = 'drawing-box';
+                activeDrawBox.style.left = `${startX}px`;
+                activeDrawBox.style.top = `${startY}px`;
+                wrapper.appendChild(activeDrawBox);
+            };
+
+            wrapper.onmousemove = (e) => {
+                if (!isDrawing || !activeDrawBox) return;
+                const rect = wrapper.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+
+                const width = Math.abs(currentX - startX);
+                const height = Math.abs(currentY - startY);
+                const left = Math.min(currentX, startX);
+                const top = Math.min(currentY, startY);
+
+                activeDrawBox.style.width = `${width}px`;
+                activeDrawBox.style.height = `${height}px`;
+                activeDrawBox.style.left = `${left}px`;
+                activeDrawBox.style.top = `${top}px`;
+            };
+
+            wrapper.onmouseup = (e) => {
+                if (!isDrawing || !activeDrawBox) return;
+                isDrawing = false;
+                const width = parseInt(activeDrawBox.style.width, 10);
+                const height = parseInt(activeDrawBox.style.height, 10);
+                const left = parseInt(activeDrawBox.style.left, 10);
+                const top = parseInt(activeDrawBox.style.top, 10);
+
+                activeDrawBox.remove();
+                activeDrawBox = null;
+
+                // Min drag size threshold
+                if (width > 15 && height > 12) {
+                    customBoxCount++;
+                    const newItem = {
+                        id: `custom_${customBoxCount}`,
+                        label: `Custom Redaction #${customBoxCount}`,
+                        active: true,
+                        top: top,
+                        left: left,
+                        width: width,
+                        height: height
+                    };
+                    detectedItems.push(newItem);
+                    renderRedactionOverlays();
+                    renderControlPanel();
+                }
+            };
+        }
+
+        // Render Red Box Overlays onto Document Canvas
+        function renderRedactionOverlays() {
+            const canvas = document.getElementById('docCanvas');
+            const oldOverlays = canvas.querySelectorAll('.redaction-box');
+            oldOverlays.forEach(el => el.remove());
+
+            detectedItems.forEach(item => {
+                if (item.active) {
+                    const box = document.createElement('div');
+                    box.className = 'redaction-box';
+                    box.style.top = `${item.top}px`;
+                    box.style.left = `${item.left}px`;
+                    box.style.width = `${item.width}px`;
+                    box.style.height = `${item.height}px`;
+                    box.innerHTML = `<i class="fa-solid fa-eye-slash mr-1 text-[9px]"></i> ${item.label}`;
+                    box.title = `Click to remove redaction`;
+                    box.onclick = (e) => {
+                        e.stopPropagation();
+                        toggleRedaction(item.id);
+                    };
+                    canvas.appendChild(box);
+                }
+            });
+        }
+
+        // Render Control Panel Checkboxes on right panel
+        function renderControlPanel() {
+            const list = document.getElementById('detectionList');
+            list.innerHTML = '';
+
+            const activeCount = detectedItems.filter(i => i.active).length;
+            document.getElementById('detectedCount').innerText = `${activeCount} Masked`;
+
+            detectedItems.forEach(item => {
+                const row = document.createElement('label');
+                row.className = 'flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-950/50 hover:bg-slate-800/50 cursor-pointer text-xs font-medium transition';
+                row.innerHTML = `
+                    <div class="flex items-center gap-2.5">
+                        <input type="checkbox" ${item.active ? 'checked' : ''} onchange="toggleRedaction('${item.id}')" class="w-4 h-4 text-red-600 rounded focus:ring-red-500 accent-red-600 cursor-pointer">
+                        <span class="text-slate-200 font-semibold">${item.label}</span>
+                    </div>
+                    <span class="${item.active ? 'bg-red-950 text-red-400 border-red-800' : 'bg-slate-800 text-slate-500 border-slate-700'} text-[10px] px-2 py-0.5 rounded-md font-extrabold border uppercase">
+                        ${item.active ? 'HIDDEN' : 'VISIBLE'}
+                    </span>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        // Toggle specific redaction mask
+        function toggleRedaction(id) {
+            detectedItems = detectedItems.map(item => {
+                if (item.id === id) {
+                    return { ...item, active: !item.active };
+                }
+                return item;
+            });
+            renderRedactionOverlays();
+            renderControlPanel();
+        }
+
+        // Process Redaction Submit and Render Preview
+        function processSubmit() {
+            document.getElementById('redactionSection').classList.add('hidden');
+            document.getElementById('previewSection').classList.remove('hidden');
+
+            updateStepIndicator(2);
+
+            const canvas = document.getElementById('docCanvas');
+            const clone = canvas.cloneNode(true);
+            
+            // Remove click handlers from static preview clone
+            const cloneBoxes = clone.querySelectorAll('.redaction-box');
+            cloneBoxes.forEach(box => {
+                box.onclick = null;
+                box.style.cursor = 'default';
+            });
+
+            const container = document.getElementById('finalPreviewContainer');
+            container.innerHTML = '';
+            container.appendChild(clone);
+        }
+
+        // Transition from Preview to LinkedIn Post Composer on Next click
+        function goToLinkedInComposer() {
+            document.getElementById('previewSection').classList.add('hidden');
+            document.getElementById('linkedinComposerSection').classList.remove('hidden');
+            updateStepIndicator(3);
+        }
+
+        // Back from Composer to Preview Stage
+        function backToPreview() {
+            document.getElementById('linkedinComposerSection').classList.add('hidden');
+            document.getElementById('previewSection').classList.remove('hidden');
+            updateStepIndicator(2);
+        }
+
+        // Update Nav Step Indicators
+        function updateStepIndicator(stepNumber) {
+            const s1 = document.getElementById('step1Indicator');
+            const s2 = document.getElementById('step2Indicator');
+            const s3 = document.getElementById('step3Indicator');
+
+            [s1, s2, s3].forEach(s => {
+                s.className = 'step-pill text-slate-400 px-3.5 py-1.5 rounded-xl flex items-center gap-2 font-medium';
+            });
+
+            if (stepNumber === 1) s1.className = 'step-pill active px-3.5 py-1.5 rounded-xl flex items-center gap-2 font-bold';
+            if (stepNumber === 2) s2.className = 'step-pill active px-3.5 py-1.5 rounded-xl flex items-center gap-2 font-bold';
+            if (stepNumber === 3) s3.className = 'step-pill active px-3.5 py-1.5 rounded-xl flex items-center gap-2 font-bold';
+        }
+
+        // Simulate publishing to LinkedIn
+        function publishToLinkedIn() {
+            document.getElementById('successModal').classList.remove('hidden');
+            document.getElementById('successModal').classList.add('flex');
+        }
+
+        // Reset application back to start
+        function resetAll() {
+            document.getElementById('redactionSection').classList.add('hidden');
+            document.getElementById('previewSection').classList.add('hidden');
+            document.getElementById('linkedinComposerSection').classList.add('hidden');
+            document.getElementById('uploadSection').classList.remove('hidden');
+            document.getElementById('docUpload').value = '';
+            updateStepIndicator(1);
+        }
+    </script>
+</body>
+</html>
